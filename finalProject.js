@@ -352,3 +352,346 @@ class ReservationService {
     return this.reservations.filter(r => r.customer.customerID === customer.customerID);
   }
 }
+
+class PaymentService {
+  constructor(paymentProcessor, paymentRepository) {
+    this.paymentProcessor = paymentProcessor;
+    this.paymentRepository = paymentRepository;
+  }
+
+  processReservationPayment(token, reservationId, paymentDetails) {
+    const payment = new Payment(
+      Date.now(), 
+      paymentDetails.amount,
+      paymentDetails.method,
+      'Pending',
+      reservationId
+    );
+
+    return this.paymentProcessor.processPayment(payment);
+  }
+
+  refundPayment(paymentId) {
+    const payment = this.paymentRepository.findByID(paymentId);
+    if (payment) {
+      return this.paymentProcessor.refundPayment(payment);
+    }
+    return false;
+  }
+}
+
+class NotificationService {
+  constructor() {
+    this.notificationMethods = [];
+  }
+
+  addNotificationMethod(method) {
+    this.notificationMethods.push(method);
+  }
+
+  sendConfirmation(customer, reservation) {
+    this.notificationMethods.forEach(method => 
+      method.sendConfirmation(customer, reservation));
+      return true;
+    }
+
+    sendCancellation(reservationId) {
+    this.notificationMethods.forEach(method => 
+      method.sendCancellation(reservationId));
+      return true;
+    }
+  }
+
+
+  class EmailNotificationService{
+    sendConfirmation(customer, reservation) {
+      console.log(`Sending email confirmation to ${customer.customerEmail} for reservation ${reservation.reservationID}`);
+      return true;
+    }
+
+    sendCancellation(reservationId) {
+      console.log(`Sending email cancellation for reservation ${reservationId}`);
+      return true;
+    }
+  }
+
+
+  class SMSNotificationService {
+  sendConfirmation(customer, reservation) {
+    console.log(`SMS sent to ${customer.customerPhoneNumber}: Reservation #${reservation.reservationID} confirmed`);
+    return true;
+  }
+
+  sendCancellation(reservationId) {
+    console.log(`SMS sent: Reservation #${reservationId} cancelled`);
+    return true;
+  }
+}
+
+// REPOSITORIES & INTERFACES
+class UserRepository {
+  constructor() {
+    this.customers = [];
+  }
+
+  findByEmail(email) {
+    return this.customers.find(c => c.customerEmail === email);
+  }
+
+  findByID(id) {
+    return this.customers.find(c => c.customerID === id);
+  }
+
+  save(customer) {
+    this.customers.push(customer);
+    return true;
+  }
+}
+
+// FACTORY PATTERN for Payment Creation
+class PaymentFactory {
+  static createPayment(type, amount, reservationId) {
+    switch(type) {
+      case 'creditcard':
+        return new Payment(Date.now(), amount, 'Credit Card', 'Pending', reservationId);
+      case 'cash':
+        return new Payment(Date.now(), amount, 'Cash', 'Pending', reservationId);
+      case 'paypal':
+        return new Payment(Date.now(), amount, 'PayPal', 'Pending', reservationId);
+      default:
+        throw new Error('Invalid payment type');
+    }
+  }
+}
+
+// BUILDER PATTERN for ReservationDetails
+class ReservationDetailsBuilder {
+  constructor() {
+    this.slot = null;
+    this.numberOfGuests = 1;
+  }
+
+  setSlot(startTime, endTime) {
+    this.slot = new Slot(startTime, endTime);
+    return this;
+  }
+
+  setNumberOfGuests(guests) {
+    this.numberOfGuests = guests;
+    return this;
+  }
+
+  build() {
+    if (!this.slot) {
+      throw new Error('Slot is required');
+    }
+    return new ReservationDetails(this.slot, this.numberOfGuests);
+  }
+}
+
+// UI CLASS (Mediator Pattern)
+class UI {
+  constructor(authService, reservationFacade, restaurant) {
+    this.authService = authService;
+    this.reservationFacade = reservationFacade;
+    this.restaurant = restaurant;
+    this.currentCustomer = null;
+    this.isAuthenticated = false;
+  }
+
+  displayHomepage() {
+    console.log('Displaying homepage');
+  }
+
+  displayLoginForm() {
+    console.log('Displaying login form');
+  }
+
+  displayRegistrationForm() {
+    console.log('Displaying registration form');
+  }
+
+  displayReservationForm() {
+    console.log('Displaying reservation form');
+  }
+
+  displayDashboard(customer) {
+    console.log(`Displaying dashboard for ${customer.customerName}`);
+  }
+
+  displayReservationConfirmation(reservation) {
+    console.log(`Reservation confirmed: #${reservation.reservationID}`);
+  }
+
+  displayErrors(error) {
+    console.error(`Error: ${error.message}`);
+  }
+
+  displayPaymentForm() {
+    console.log('Displaying payment form');
+  }
+
+  handleLogin(email, password) {
+    try {
+      const authResponse = this.authService.login(email, password);
+      if (authResponse) {
+        this.currentCustomer = authResponse.customer;
+        this.isAuthenticated = true;
+        this.displayDashboard(this.currentCustomer);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      this.displayErrors(error);
+      return false;
+    }
+  }
+
+  handleLogout() {
+    this.currentCustomer = null;
+    this.isAuthenticated = false;
+    console.log('Logged out successfully');
+  }
+
+  handlePayment(reservationId, paymentDetails) {
+    try {
+      const result = this.reservationFacade.processReservationPayment(
+        'token123',
+        reservationId,
+        paymentDetails
+      );
+      return result;
+    } catch (error) {
+      this.displayErrors(error);
+      return false;
+    }
+  }
+
+  handleRegistration(details) {
+    try {
+      const authResponse = this.authService.registerCustomer(details);
+      this.currentCustomer = authResponse.customer;
+      this.isAuthenticated = true;
+      console.log('Registration successful');
+      return authResponse;
+    } catch (error) {
+      this.displayErrors(error);
+      return null;
+    }
+  }
+
+  handleReservationRequest(details) {
+    try {
+      const reservation = this.reservationFacade.createReservation('token123', details);
+      if (reservation) {
+        this.displayReservationConfirmation(reservation);
+      }
+      return reservation;
+    } catch (error) {
+      this.displayErrors(error);
+      return null;
+    }
+  }
+}
+
+// SUPPORTING CLASSES
+class PasswordEncoder {
+  encode(rawPassword) {
+    return btoa(rawPassword);
+  }
+
+  matches(rawPassword, encodedPassword) {
+    return btoa(rawPassword) === encodedPassword;
+  }
+}
+
+class AuthResponse {
+  constructor(token, customer) {
+    this.token = token;
+    this.customer = customer;
+  }
+}
+
+class CustomerDetails {
+  constructor(name, email, password, phoneNumber) {
+    this.name = name;
+    this.email = email;
+    this.password = password;
+    this.phoneNumber = phoneNumber;
+  }
+}
+
+class ProfileDetails {
+  constructor(name, phoneNumber, email) {
+    this.name = name;
+    this.phoneNumber = phoneNumber;
+    this.email = email;
+  }
+}
+
+// Example Usage
+function setupSystem() {
+  // Create repositories
+  const userRepository = new UserRepository();
+  const paymentRepository = new PaymentRepository();
+ 
+  // Create services
+  const passwordEncoder = new PasswordEncoder();
+  const authService = new AuthenticationService(userRepository, passwordEncoder);
+ 
+  const restaurant = new Restaurant(1, 'Fine Dining', '123 Main St', '10AM-10PM');
+ 
+  // Add some tables
+  restaurant.addTable(new Table(1, 'John', 4, 'Window'));
+  restaurant.addTable(new Table(2, 'Sarah', 6, 'Center'));
+  restaurant.addTable(new Table(3, 'Mike', 2, 'Corner'));
+ 
+  // Create SRP-compliant services
+  const reservationService = new ReservationService(restaurant, authService);
+  const paymentStrategy = new CreditCardPayment();
+  const paymentProcessor = new PaymentProcessor(paymentRepository, paymentStrategy);
+  const paymentService = new PaymentService(paymentProcessor, paymentRepository);
+ 
+  // Create notification service with multiple methods
+  const notificationService = new NotificationService();
+  notificationService.addNotificationMethod(new EmailNotificationService());
+  notificationService.addNotificationMethod(new SMSNotificationService());
+ 
+  // Create facade
+  const reservationFacade = new ReservationServiceFacade(
+    reservationService,
+    paymentService,
+    notificationService
+  );
+ 
+  // Create UI
+  const ui = new UI(authService, reservationFacade, restaurant);
+ 
+  return { ui, authService, reservationFacade };
+}
+
+// Demo
+const system = setupSystem();
+const ui = system.ui;
+
+// Register a customer
+const customerDetails = new CustomerDetails('John Doe', 'john@example.com', 'password123', '555-1234');
+ui.handleRegistration(customerDetails);
+
+// Make a reservation
+const reservationBuilder = new ReservationDetailsBuilder();
+const reservationDetails = reservationBuilder
+  .setSlot('2025-12-25 18:00', '2025-12-25 20:00')
+  .setNumberOfGuests(4)
+  .build();
+
+const reservation = ui.handleReservationRequest(reservationDetails);
+
+if (reservation) {
+  // Process payment
+  const paymentDetails = {
+    amount: 100,
+    method: 'creditcard'
+  };
+  ui.handlePayment(reservation.reservationID, paymentDetails);
+}
